@@ -213,8 +213,7 @@ if st.session_state.scan_results is not None:
 
     st.link_button(
         f"📊 {code} {row['銘柄名']} チャート",
-        f"https://jp.tradingview.com/symbols/TSE-{code}/"
-    )
+        f"https://jp.tradingview.com/symbols/TSE-{code}/" )
 
 # =========================
 # 自動更新
