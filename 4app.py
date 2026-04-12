@@ -200,8 +200,21 @@ RR:{round(rr,2)}
 # 表示
 # =========================
 if st.session_state.scan_results is not None:
+
     st.subheader("🔥 上位銘柄")
-    st.dataframe(st.session_state.scan_results, use_container_width=True)
+    df1 = st.session_state.scan_results
+
+    st.dataframe(df1, use_container_width=True)
+
+    st.subheader("📊 チャート確認")
+
+    for i, row in df1.iterrows():
+    code = row["コード"]
+
+    st.link_button(
+        f"📊 {code} {row['銘柄名']} チャート",
+        f"https://jp.tradingview.com/symbols/TSE-{code}/"
+    )
 
 # =========================
 # 自動更新
