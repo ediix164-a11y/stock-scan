@@ -213,8 +213,7 @@ if st.session_state.scan_results is not None:
     for i, row in df1.iterrows():
     st.link_button(
     f"📊 {row['コード']} {row['銘柄名']}",
-    f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/"
-    )
+    f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/")
 
 # =========================
 # 自動更新
