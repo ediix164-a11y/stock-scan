@@ -4,15 +4,13 @@ import pandas as pd
 import time
 import smtplib
 from email.mime.text import MIMEText
-import os
 import datetime
 
 st.set_page_config(page_title="最強スキャナー GOD", layout="wide")
-
 st.title("👑 最強スキャナー GOD（勝率 × RR）")
 
 # =========================
-# メール通知関数
+# メール通知
 # =========================
 def send_mail(msg):
     sender = "あなたのgmail@gmail.com"
@@ -33,12 +31,11 @@ def send_mail(msg):
 # CSV
 # =========================
 df_codes = pd.read_csv("jpx400.csv", header=None)
-
 codes = df_codes[0].astype(str).tolist()
 name_dict = dict(zip(df_codes[0].astype(str), df_codes[1]))
 
 # =========================
-# セッション初期化
+# セッション
 # =========================
 if "sent_alerts" not in st.session_state:
     st.session_state.sent_alerts = []
@@ -46,17 +43,10 @@ if "sent_alerts" not in st.session_state:
 if "scan_results" not in st.session_state:
     st.session_state.scan_results = None
 
-if "selected_code" not in st.session_state:
-    st.session_state.selected_code = None
-
-if "trade_log" not in st.session_state:
-    st.session_state.trade_log = []
-
 # =========================
-# 1日1回リセット（重要）
+# 日付リセット
 # =========================
 today = datetime.date.today()
-
 if "last_reset" not in st.session_state:
     st.session_state.last_reset = today
 
@@ -67,7 +57,7 @@ if st.session_state.last_reset != today:
 # =========================
 # UI
 # =========================
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     min_rsi = st.slider("RSI", 20, 60, 25)
@@ -78,37 +68,18 @@ with col2:
 with col3:
     min_rr = st.slider("最低RR", 1.0, 3.0, 1.5)
 
-with col4:
-    top_n = st.selectbox("表示数", [5,10,20], index=0)
+top_n = st.selectbox("表示数", [5,10,20], index=0)
 
-if hour == 9 and minute < 5:
-    refresh_sec = 60
-elif 9 <= hour <= 10:
-    refresh_sec = 300
-else:
-    refresh_sec = None
-
-# ■ 更新速度切り替え
-if hour == 9 and minute < 5:
-    refresh_sec = 60
-elif 9 <= hour <= 10:
-    refresh_sec = 300
-else:
-    refresh_sec = None
 # =========================
-# 自動制御（ここ重要）
+# 自動制御（最重要）
 # =========================
 now = datetime.datetime.now()
 hour = now.hour
 minute = now.minute
 
-# 手動スイッチ
-manual_run = st.checkbox("🚀 自動監視ON/OFF", value=False)
-
-# 時間制御
+manual_run = st.checkbox("🚀 手動ON", value=False)
 time_run = (9 <= hour <= 10)
 
-# 最終判定
 run_bot = manual_run or time_run
 
 # 更新速度
@@ -117,21 +88,10 @@ if hour == 9 and minute < 5:
 elif 9 <= hour <= 10:
     refresh_sec = 300
 else:
-    refresh_sec = None    
-# =========================
-# 勝率計算
-# =========================
-win_rate_dict = {}
-
-if st.session_state.trade_log:
-    df_log = pd.DataFrame(st.session_state.trade_log)
-    summary = df_log.groupby("サイン")["結果"].apply(
-        lambda x: (x == "勝ち").mean()
-    )
-    win_rate_dict = summary.to_dict()
+    refresh_sec = None
 
 # =========================
-# スキャン（ONのときだけ）
+# スキャン
 # =========================
 if run_bot:
 
@@ -162,6 +122,7 @@ if run_bot:
             if latest["Close"] < latest["MA20"] or latest["RSI"] < min_rsi or vol_ratio < min_vol:
                 continue
 
+            # ===== サイン =====
             signal = ""
 
             if latest["Close"] > latest["MA20"] and prev["Close"] < prev["MA20"]:
@@ -173,6 +134,7 @@ if run_bot:
             elif latest["Close"] > latest["MA5"] > latest["MA20"] and vol_ratio > 1.5:
                 signal = "⚡ 初動"
 
+            # ===== エントリー =====
             entry = None
 
             if signal == "🟢 押し目反転":
@@ -185,6 +147,7 @@ if run_bot:
             if not entry:
                 continue
 
+            # ===== RR計算 =====
             stop = entry * 0.97
             target = entry * 1.06
 
@@ -192,14 +155,12 @@ if run_bot:
             reward = target - entry
             rr = reward / risk if risk > 0 else 0
 
-            win_rate = win_rate_dict.get(signal, 0.5)
-
-            if rr < min_rr or win_rate < 0.5:
+            if rr < min_rr:
                 continue
 
-            score = rr * 100 + win_rate * 100
+            score = rr * 100
 
-            # ★ 通知もrun_bot連動にする
+            # ===== 通知 =====
             if rr >= 2.5 and "🔥" in signal:
                 key = f"{code}_{signal}"
 
@@ -218,7 +179,6 @@ RR:{round(rr,2)}
                 "銘柄名": name_dict.get(code, ""),
                 "株価": round(float(latest["Close"]),1),
                 "サイン": signal,
-                "勝率": round(win_rate*100,1),
                 "RR": round(rr,2),
                 "エントリー": round(entry,1),
                 "損切り": round(stop,1),
@@ -240,25 +200,12 @@ RR:{round(rr,2)}
 # 表示
 # =========================
 if st.session_state.scan_results is not None:
-
-    st.subheader("🔥 勝てる銘柄だけ")
+    st.subheader("🔥 上位銘柄")
     st.dataframe(st.session_state.scan_results, use_container_width=True)
-
-    for i, row in st.session_state.scan_results.iterrows():
-        if st.button(f"{row['コード']} {row['銘柄名']}", key=f"btn_{i}"):
-            st.session_state.selected_code = row["コード"]
-
-# =========================
-# チャート
-# =========================
-if st.session_state.selected_code:
-    code = st.session_state.selected_code
-    st.link_button("📊 チャート", f"https://jp.tradingview.com/symbols/TSE-{code}/")
 
 # =========================
 # 自動更新
 # =========================
-now = datetime.datetime.now()
-hour = now.hour
-minute = now.minute
 if run_bot and refresh_sec:
+    time.sleep(refresh_sec)
+    st.rerun()
