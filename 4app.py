@@ -82,7 +82,7 @@ if st.session_state.trade_log:
 # =========================
 # スキャン
 # =========================
-if st.button("🚀 スキャン") or auto_refresh:
+if True:
 
     results = []
     progress = st.progress(0)
@@ -110,7 +110,8 @@ if st.button("🚀 スキャン") or auto_refresh:
 
             if latest["Close"] < latest["MA20"] or latest["RSI"] < min_rsi or vol_ratio < min_vol:
                 continue
-
+time.sleep(300)
+st.rerun()
             # ===== サイン =====
             signal = ""
 
