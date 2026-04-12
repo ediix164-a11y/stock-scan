@@ -97,114 +97,110 @@ if st.session_state.trade_log:
     win_rate_dict = summary.to_dict()
 
 # =========================
-# スキャン（完全自動）
+# スキャン（ONのときだけ）
 # =========================
-results = []
-progress = st.progress(0)
+if run_bot:
 
-for i, code in enumerate(codes):
-    try:
-        df = yf.Ticker(f"{code}.T").history(period="3mo")
+    results = []
+    progress = st.progress(0)
 
-        if len(df) < 50:
-            continue
+    for i, code in enumerate(codes):
+        try:
+            df = yf.Ticker(f"{code}.T").history(period="3mo")
 
-        df["MA20"] = df["Close"].rolling(20).mean()
-        df["MA5"] = df["Close"].rolling(5).mean()
+            if len(df) < 50:
+                continue
 
-        delta = df["Close"].diff()
-        gain = delta.clip(lower=0)
-        loss = -delta.clip(upper=0)
-        rs = gain.rolling(14).mean() / loss.rolling(14).mean()
-        df["RSI"] = 100 - (100 / (1 + rs))
+            df["MA20"] = df["Close"].rolling(20).mean()
+            df["MA5"] = df["Close"].rolling(5).mean()
 
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
+            delta = df["Close"].diff()
+            gain = delta.clip(lower=0)
+            loss = -delta.clip(upper=0)
+            rs = gain.rolling(14).mean() / loss.rolling(14).mean()
+            df["RSI"] = 100 - (100 / (1 + rs))
 
-        vol_ratio = df["Volume"].iloc[-1] / df["Volume"].rolling(20).mean().iloc[-1]
+            latest = df.iloc[-1]
+            prev = df.iloc[-2]
 
-        if latest["Close"] < latest["MA20"] or latest["RSI"] < min_rsi or vol_ratio < min_vol:
-            continue
+            vol_ratio = df["Volume"].iloc[-1] / df["Volume"].rolling(20).mean().iloc[-1]
 
-        # ===== サイン =====
-        signal = ""
+            if latest["Close"] < latest["MA20"] or latest["RSI"] < min_rsi or vol_ratio < min_vol:
+                continue
 
-        if latest["Close"] > latest["MA20"] and prev["Close"] < prev["MA20"]:
-            signal = "🟢 押し目反転"
+            signal = ""
 
-        elif latest["Close"] > df["High"].rolling(20).max().iloc[-2] and vol_ratio > 1.5:
-            signal = "🔥 ブレイク"
+            if latest["Close"] > latest["MA20"] and prev["Close"] < prev["MA20"]:
+                signal = "🟢 押し目反転"
 
-        elif latest["Close"] > latest["MA5"] > latest["MA20"] and vol_ratio > 1.5:
-            signal = "⚡ 初動"
+            elif latest["Close"] > df["High"].rolling(20).max().iloc[-2] and vol_ratio > 1.5:
+                signal = "🔥 ブレイク"
 
-        # ===== エントリー =====
-        entry = None
+            elif latest["Close"] > latest["MA5"] > latest["MA20"] and vol_ratio > 1.5:
+                signal = "⚡ 初動"
 
-        if signal == "🟢 押し目反転":
-            entry = df["High"].iloc[-2]
-        elif signal == "🔥 ブレイク":
-            entry = df["High"].rolling(20).max().iloc[-2]
-        elif signal == "⚡ 初動":
-            entry = latest["MA5"]
+            entry = None
 
-        if not entry:
-            continue
+            if signal == "🟢 押し目反転":
+                entry = df["High"].iloc[-2]
+            elif signal == "🔥 ブレイク":
+                entry = df["High"].rolling(20).max().iloc[-2]
+            elif signal == "⚡ 初動":
+                entry = latest["MA5"]
 
-        # ===== 損切り・利確 =====
-        stop = entry * 0.97
-        target = entry * 1.06
+            if not entry:
+                continue
 
-        risk = entry - stop
-        reward = target - entry
-        rr = reward / risk if risk > 0 else 0
+            stop = entry * 0.97
+            target = entry * 1.06
 
-        # ===== 勝率 =====
-        win_rate = win_rate_dict.get(signal, 0.5)
+            risk = entry - stop
+            reward = target - entry
+            rr = reward / risk if risk > 0 else 0
 
-        # ===== フィルター =====
-        if rr < min_rr or win_rate < 0.5:
-            continue
+            win_rate = win_rate_dict.get(signal, 0.5)
 
-        score = rr * 100 + win_rate * 100
+            if rr < min_rr or win_rate < 0.5:
+                continue
 
-        # ===== メール通知（重複防止）=====
-        if rr >= 2.1 and "🔥" in signal:
-            key = f"{code}_{signal}"
+            score = rr * 100 + win_rate * 100
 
-            if key not in st.session_state.sent_alerts:
+            # ★ 通知もrun_bot連動にする
+            if rr >= 2.5 and "🔥" in signal:
+                key = f"{code}_{signal}"
 
-                msg = f"""
+                if key not in st.session_state.sent_alerts:
+                    msg = f"""
 🔥 {code} {name_dict.get(code, "")}
 {signal}
 IN:{round(entry,1)}
 RR:{round(rr,2)}
 """
-                send_mail(msg)
-                st.session_state.sent_alerts.append(key)
+                    send_mail(msg)
+                    st.session_state.sent_alerts.append(key)
 
-        results.append({
-            "コード": code,
-            "銘柄名": name_dict.get(code, ""),
-            "株価": round(float(latest["Close"]),1),
-            "サイン": signal,
-            "勝率": round(win_rate*100,1),
-            "RR": round(rr,2),
-            "エントリー": round(entry,1),
-            "損切り": round(stop,1),
-            "利確": round(target,1),
-            "スコア": round(score,1)
-        })
+            results.append({
+                "コード": code,
+                "銘柄名": name_dict.get(code, ""),
+                "株価": round(float(latest["Close"]),1),
+                "サイン": signal,
+                "勝率": round(win_rate*100,1),
+                "RR": round(rr,2),
+                "エントリー": round(entry,1),
+                "損切り": round(stop,1),
+                "利確": round(target,1),
+                "スコア": round(score,1)
+            })
 
-    except:
-        continue
+        except:
+            continue
 
-    progress.progress((i+1)/len(codes))
+        progress.progress((i+1)/len(codes))
 
-if results:
-    st.session_state.scan_results = pd.DataFrame(results)\
-        .sort_values("スコア", ascending=False)\
-        .head(top_n)
+    if results:
+        st.session_state.scan_results = pd.DataFrame(results)\
+            .sort_values("スコア", ascending=False)\
+            .head(top_n)
 
 # =========================
 # 表示
