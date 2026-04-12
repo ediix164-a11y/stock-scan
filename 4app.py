@@ -208,10 +208,15 @@ if st.session_state.scan_results is not None:
 
     st.subheader("📊 チャート確認")
 
-    for i, row in df1.iterrows():
+    st.subheader("📊 チャート確認")
+
+for i, row in df1.iterrows():
+    code = row["コード"]
+    name = row["銘柄名"]
+
     st.link_button(
-        f"📊 {row['コード']} {row['銘柄名']}",
-        f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/"
+        f"📊 {code} {name}",
+        f"https://jp.tradingview.com/symbols/TSE-{code}/"
     )
 
 # =========================
