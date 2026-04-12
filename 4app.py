@@ -265,4 +265,4 @@ with st.form(key="trade_record_form"):
 # =========================
 if auto_refresh:
 　　time.sleep(300)
-　　st.rerun()
+st.rerun()
