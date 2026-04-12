@@ -264,5 +264,5 @@ with st.form(key="trade_record_form"):
 # 自動更新
 # =========================
 if auto_refresh:
-　　time.sleep(300)
-　　st.rerun()
+    time.sleep(300)
+    st.rerun()
