@@ -110,8 +110,7 @@ if True:
 
             if latest["Close"] < latest["MA20"] or latest["RSI"] < min_rsi or vol_ratio < min_vol:
                 continue
-time.sleep(300)
-st.rerun()
+
             # ===== サイン =====
             signal = ""
 
@@ -265,5 +264,5 @@ with st.form(key="trade_record_form"):
 # 自動更新
 # =========================
 if auto_refresh:
-    time.sleep(60)
-    st.rerun()
+　　time.sleep(300)
+　　st.rerun()
