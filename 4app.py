@@ -81,7 +81,6 @@ with col3:
 with col4:
     top_n = st.selectbox("表示数", [5,10,20], index=0)
 
-auto_refresh = st.checkbox("🔄 自動更新", value=True)
 run_bot = st.checkbox("🚀 自動監視ON/OFF", value=False)
 
 # =========================
