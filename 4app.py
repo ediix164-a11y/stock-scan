@@ -96,6 +96,29 @@ elif 9 <= hour <= 10:
 else:
     refresh_sec = None
 # =========================
+# 自動制御（ここ重要）
+# =========================
+now = datetime.datetime.now()
+hour = now.hour
+minute = now.minute
+
+# 手動スイッチ
+manual_run = st.checkbox("🚀 自動監視ON/OFF", value=False)
+
+# 時間制御
+time_run = (9 <= hour <= 10)
+
+# 最終判定
+run_bot = manual_run or time_run
+
+# 更新速度
+if hour == 9 and minute < 5:
+    refresh_sec = 60
+elif 9 <= hour <= 10:
+    refresh_sec = 300
+else:
+    refresh_sec = None    
+# =========================
 # 勝率計算
 # =========================
 win_rate_dict = {}
@@ -235,6 +258,7 @@ if st.session_state.selected_code:
 # =========================
 # 自動更新
 # =========================
+now = datetime.datetime.now()
+hour = now.hour
+minute = now.minute
 if run_bot and refresh_sec:
-    time.sleep(refresh_sec)
-    st.rerun()
