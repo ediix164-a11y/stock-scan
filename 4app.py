@@ -39,7 +39,9 @@ name_dict = dict(zip(df_codes[0].astype(str), df_codes[1]))
 # =========================
 # セッション
 # =========================
-if "scan_results" not in st.session_state:
+if "sent_alerts" not in st.session_state:
+    st.session_state.sent_alerts = []
+    if "scan_results" not in st.session_state:
     st.session_state.scan_results = None
 
 if "selected_code" not in st.session_state:
