@@ -209,9 +209,12 @@ if st.session_state.scan_results is not None:
     st.subheader("📊 チャート確認")
 
     for i, row in df1.iterrows():
-    if st.button(f"📊 {row['コード']} {row['銘柄名']}", key=f"chart_{i}"):
-        url = f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/"
-        st.markdown(f"[TradingViewを開く]({url})")
+    code = row["コード"]
+
+    st.link_button(
+        f"📊 {code} {row['銘柄名']} チャート",
+        f"https://jp.tradingview.com/symbols/TSE-{code}/"
+    )
 
 # =========================
 # 自動更新
