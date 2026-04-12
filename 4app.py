@@ -81,25 +81,20 @@ with col3:
 with col4:
     top_n = st.selectbox("表示数", [5,10,20], index=0)
 
-run_bot = st.checkbox("🚀 自動監視ON/OFF", value=False)
-
-import datetime
-
-now = datetime.datetime.now()
-hour = now.hour
-minute = now.minute
-
-# ■ 稼働時間
-run_bot = (9 <= hour <= 10)
+if hour == 9 and minute < 5:
+    refresh_sec = 60
+elif 9 <= hour <= 10:
+    refresh_sec = 300
+else:
+    refresh_sec = None
 
 # ■ 更新速度切り替え
 if hour == 9 and minute < 5:
-    refresh_sec = 60   # 寄付き5分 → 1分更新
+    refresh_sec = 60
 elif 9 <= hour <= 10:
-    refresh_sec = 300  # 通常 → 5分更新
+    refresh_sec = 300
 else:
-    refresh_sec = None  # 停止
-
+    refresh_sec = None
 # =========================
 # 勝率計算
 # =========================
