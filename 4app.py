@@ -168,7 +168,7 @@ for i, code in enumerate(codes):
         score = rr * 100 + win_rate * 100
 
         # ===== メール通知（重複防止）=====
-        if rr >= 2.5 and "🔥" in signal:
+        if rr >= 2 and "🔥" in signal:
             key = f"{code}_{signal}"
 
             if key not in st.session_state.sent_alerts:
