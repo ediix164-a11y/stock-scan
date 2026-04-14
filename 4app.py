@@ -6,8 +6,11 @@ import smtplib
 from email.mime.text import MIMEText
 import datetime
 
+# =========================
+# 基本設定
+# =========================
 st.set_page_config(page_title="最強スキャナー GOD", layout="wide")
-st.title("👑 最強スキャナー GOD（勝率 × RR）")
+st.title("👑 最強スキャナー GOD（完成版）")
 
 # =========================
 # メール通知
@@ -28,11 +31,15 @@ def send_mail(msg):
     smtp.quit()
 
 # =========================
-# CSV
+# CSV（エラー対策込み）
 # =========================
-df_codes = pd.read_csv("jpx400.csv", header=None)
-codes = df_codes[0].astype(str).tolist()
-name_dict = dict(zip(df_codes[0].astype(str), df_codes[1]))
+df_raw = pd.read_csv("jpx400.csv")
+
+valid_codes = pd.to_numeric(df_raw.iloc[:, 0], errors='coerce')
+df = df_raw[valid_codes.notna()]
+
+codes = df.iloc[:, 0].astype(int).astype(str).tolist()
+name_dict = dict(zip(codes, df.iloc[:, 1]))
 
 # =========================
 # セッション
@@ -68,10 +75,10 @@ with col2:
 with col3:
     min_rr = st.slider("最低RR", 1.0, 3.0, 1.5)
 
-top_n = st.selectbox("表示数", [5,10,20], index=0)
+top_n = st.selectbox("表示数", [5, 10, 20], index=0)
 
 # =========================
-# 自動制御（最重要）
+# 自動制御
 # =========================
 now = datetime.datetime.now()
 hour = now.hour
@@ -105,6 +112,7 @@ if run_bot:
             if len(df) < 50:
                 continue
 
+            # テクニカル
             df["MA20"] = df["Close"].rolling(20).mean()
             df["MA5"] = df["Close"].rolling(5).mean()
 
@@ -117,58 +125,75 @@ if run_bot:
             latest = df.iloc[-1]
             prev = df.iloc[-2]
 
-            vol_ratio = df["Volume"].iloc[-1] / df["Volume"].rolling(20).mean().iloc[-1]
-
-            if latest["Close"] < latest["MA20"] or latest["RSI"] < min_rsi or vol_ratio < min_vol:
+            vol_ma = df["Volume"].rolling(20).mean().iloc[-1]
+            if vol_ma == 0:
                 continue
 
-            # ===== サイン =====
-            signal = ""
+            vol_ratio = latest["Volume"] / vol_ma
 
+            # フィルター
+            if latest["Close"] < latest["MA20"]:
+                continue
+            if latest["RSI"] < min_rsi:
+                continue
+            if vol_ratio < min_vol:
+                continue
+
+            # ===== サインロジック（完成版）=====
+            signal = ""
+            entry = None
+            stop = None
+
+            res_20 = df["High"].rolling(20).max().iloc[-2]
+
+            # 押し目反転
             if latest["Close"] > latest["MA20"] and prev["Close"] < prev["MA20"]:
                 signal = "🟢 押し目反転"
+                entry = latest["Close"]
+                stop = latest["MA20"] * 0.98
 
-            elif latest["Close"] > df["High"].rolling(20).max().iloc[-2] and vol_ratio > 1.5:
+            # ブレイク（最重要）
+            elif latest["Close"] > res_20 and vol_ratio > 1.5:
                 signal = "🔥 ブレイク"
+                entry = latest["Close"]
+                stop = res_20 * 0.98
 
-            elif latest["Close"] > latest["MA5"] > latest["MA20"] and vol_ratio > 1.5:
+            # 初動（厳選）
+            elif latest["Close"] > latest["MA5"] > latest["MA20"] and vol_ratio > 2.0:
                 signal = "⚡ 初動"
-
-            # ===== エントリー =====
-            entry = None
-
-            if signal == "🟢 押し目反転":
-                entry = df["High"].iloc[-2]
-            elif signal == "🔥 ブレイク":
-                entry = df["High"].rolling(20).max().iloc[-2]
-            elif signal == "⚡ 初動":
-                entry = latest["MA5"]
+                entry = latest["Close"]
+                stop = latest["MA5"] * 0.97
 
             if not entry:
                 continue
 
             # ===== RR計算 =====
-            stop = entry * 0.97
-            target = entry * 1.06
-
             risk = entry - stop
-            reward = target - entry
-            rr = reward / risk if risk > 0 else 0
+            if risk <= 0:
+                continue
+
+            # ボラ除外（重要）
+            if (risk / entry) > 0.05:
+                continue
+
+            target = entry + (risk * 2.0)
+            rr = (target - entry) / risk
 
             if rr < min_rr:
                 continue
 
             score = rr * 100
 
-            # ===== 通知 =====
-            if rr >= 2.5 and "🔥" in signal:
+            # ===== 通知（最強フィルター）=====
+            if rr >= 2.0 and "🔥" in signal:
                 key = f"{code}_{signal}"
 
                 if key not in st.session_state.sent_alerts:
                     msg = f"""
 🔥 {code} {name_dict.get(code, "")}
 {signal}
-IN:{round(entry,1)}
+価格:{round(entry,1)}
+損切:{round(stop,1)}
 RR:{round(rr,2)}
 """
                     send_mail(msg)
@@ -177,19 +202,19 @@ RR:{round(rr,2)}
             results.append({
                 "コード": code,
                 "銘柄名": name_dict.get(code, ""),
-                "株価": round(float(latest["Close"]),1),
+                "株価": round(float(latest["Close"]), 1),
                 "サイン": signal,
-                "RR": round(rr,2),
-                "エントリー": round(entry,1),
-                "損切り": round(stop,1),
-                "利確": round(target,1),
-                "スコア": round(score,1)
+                "RR": round(rr, 2),
+                "エントリー": round(entry, 1),
+                "損切り": round(stop, 1),
+                "利確": round(target, 1),
+                "スコア": round(score, 1)
             })
 
         except:
             continue
 
-        progress.progress((i+1)/len(codes))
+        progress.progress((i + 1) / len(codes))
 
     if results:
         st.session_state.scan_results = pd.DataFrame(results)\
@@ -204,16 +229,16 @@ if st.session_state.scan_results is not None:
     st.subheader("🔥 上位銘柄")
     df1 = st.session_state.scan_results
 
-    st.dataframe(df1, use_container_width=True)
+    st.dataframe(df1, width="stretch")
 
-    st.subheader("📊 チャート確認")
+    st.subheader("📊 TradingView")
 
     for i, row in df1.iterrows():
         st.link_button(
             f"📊 {row['コード']} {row['銘柄名']}",
             f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/"
-    )
-    
+        )
+
 # =========================
 # 自動更新
 # =========================
