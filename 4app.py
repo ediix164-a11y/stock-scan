@@ -13,9 +13,9 @@ st.title("👑 最強スキャナー GOD（勝率 × RR）")
 # メール通知
 # =========================
 def send_mail(msg):
-    sender = "あなたのgmail@gmail.com"
-    password = "アプリパスワード"
-    receiver = "あなたのgmail@gmail.com"
+    sender = "ediix.164@gmail.com"
+    password = "srhg uzgk lccr yssk"
+    receiver = "ediix.164@gmail.com"
 
     message = MIMEText(msg)
     message["Subject"] = "📈 株アラート"
