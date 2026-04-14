@@ -9,8 +9,8 @@ import datetime
 # =========================
 # 基本設定
 # =========================
-st.set_page_config(page_title="最強スキャナー GOD", layout="wide")
-st.title("👑 最強スキャナー GOD（完成版）")
+st.set_page_config(page_title="寄付き特化BOT", layout="wide")
+st.title("🚀 寄付き5分スキャナー（超高速モード）")
 
 # =========================
 # メール通知
@@ -21,7 +21,7 @@ def send_mail(msg):
     receiver = "ediix.164@gmail.com"
 
     message = MIMEText(msg)
-    message["Subject"] = "📈 株アラート"
+    message["Subject"] = "🚀 寄付きアラート"
     message["From"] = sender
     message["To"] = receiver
 
@@ -31,7 +31,7 @@ def send_mail(msg):
     smtp.quit()
 
 # =========================
-# CSV（エラー対策込み）
+# CSV読み込み（安全版）
 # =========================
 df_raw = pd.read_csv("jpx400.csv")
 
@@ -44,58 +44,26 @@ name_dict = dict(zip(codes, df.iloc[:, 1]))
 # =========================
 # セッション
 # =========================
-if "sent_alerts" not in st.session_state:
-    st.session_state.sent_alerts = []
-
-if "scan_results" not in st.session_state:
-    st.session_state.scan_results = None
+if "alerts" not in st.session_state:
+    st.session_state.alerts = []
 
 # =========================
-# 日付リセット
-# =========================
-today = datetime.date.today()
-if "last_reset" not in st.session_state:
-    st.session_state.last_reset = today
-
-if st.session_state.last_reset != today:
-    st.session_state.sent_alerts = []
-    st.session_state.last_reset = today
-
-# =========================
-# UI
-# =========================
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    min_rsi = st.slider("RSI", 20, 60, 25)
-
-with col2:
-    min_vol = st.slider("出来高倍率", 1.0, 3.0, 1.3)
-
-with col3:
-    min_rr = st.slider("最低RR", 1.0, 3.0, 1.5)
-
-top_n = st.selectbox("表示数", [5, 10, 20], index=0)
-
-# =========================
-# 自動制御
+# 時間制御（寄付き専用）
 # =========================
 now = datetime.datetime.now()
 hour = now.hour
 minute = now.minute
 
-manual_run = st.checkbox("🚀 手動ON", value=False)
-time_run = (9 <= hour <= 10)
+manual = st.checkbox("手動ON（テスト用）", value=False)
 
-run_bot = manual_run or time_run
+# 9:00〜9:05のみ稼働
+run_bot = manual or (hour == 9 and minute <= 5)
 
-# 更新速度
-if hour == 9 and minute < 5:
-    refresh_sec = 60
-elif 9 <= hour <= 10:
-    refresh_sec = 300
-else:
-    refresh_sec = None
+# 1分更新
+refresh_sec = 60 if run_bot else None
+
+st.write(f"現在時刻: {hour}:{minute}")
+st.write(f"稼働状態: {'ON' if run_bot else 'OFF'}")
 
 # =========================
 # スキャン
@@ -107,137 +75,94 @@ if run_bot:
 
     for i, code in enumerate(codes):
         try:
-            df = yf.Ticker(f"{code}.T").history(period="3mo")
+            df = yf.Ticker(f"{code}.T").history(period="5d", interval="1m")
 
             if len(df) < 50:
                 continue
 
-            # テクニカル
-            df["MA20"] = df["Close"].rolling(20).mean()
-            df["MA5"] = df["Close"].rolling(5).mean()
-
-            delta = df["Close"].diff()
-            gain = delta.clip(lower=0)
-            loss = -delta.clip(upper=0)
-            rs = gain.rolling(14).mean() / loss.rolling(14).mean()
-            df["RSI"] = 100 - (100 / (1 + rs))
+            # 前日終値
+            prev_close = yf.Ticker(f"{code}.T").history(period="2d")["Close"].iloc[-2]
 
             latest = df.iloc[-1]
-            prev = df.iloc[-2]
 
+            # ===== ギャップ判定 =====
+            gap = (latest["Open"] - prev_close) / prev_close
+
+            if gap < 0.02:
+                continue  # 2%以上ギャップのみ
+
+            # ===== 出来高急増 =====
             vol_ma = df["Volume"].rolling(20).mean().iloc[-1]
             if vol_ma == 0:
                 continue
 
             vol_ratio = latest["Volume"] / vol_ma
 
-            # フィルター
-            if latest["Close"] < latest["MA20"]:
-                continue
-            if latest["RSI"] < min_rsi:
-                continue
-            if vol_ratio < min_vol:
+            if vol_ratio < 2.0:
                 continue
 
-            # ===== サインロジック（完成版）=====
-            signal = ""
-            entry = None
-            stop = None
+            # ===== 高値ブレイク =====
+            high_5 = df["High"].rolling(5).max().iloc[-2]
 
-            res_20 = df["High"].rolling(20).max().iloc[-2]
-
-            # 押し目反転
-            if latest["Close"] > latest["MA20"] and prev["Close"] < prev["MA20"]:
-                signal = "🟢 押し目反転"
-                entry = latest["Close"]
-                stop = latest["MA20"] * 0.98
-
-            # ブレイク（最重要）
-            elif latest["Close"] > res_20 and vol_ratio > 1.5:
-                signal = "🔥 ブレイク"
-                entry = latest["Close"]
-                stop = res_20 * 0.98
-
-            # 初動（厳選）
-            elif latest["Close"] > latest["MA5"] > latest["MA20"] and vol_ratio > 2.0:
-                signal = "⚡ 初動"
-                entry = latest["Close"]
-                stop = latest["MA5"] * 0.97
-
-            if not entry:
+            if latest["Close"] <= high_5:
                 continue
 
-            # ===== RR計算 =====
+            # ===== エントリー =====
+            entry = latest["Close"]
+            stop = latest["Low"]
             risk = entry - stop
+
             if risk <= 0:
                 continue
 
-            # ボラ除外（重要）
-            if (risk / entry) > 0.05:
+            # ボラ除外
+            if (risk / entry) > 0.03:
                 continue
 
             target = entry + (risk * 2.0)
             rr = (target - entry) / risk
 
-            if rr < min_rr:
+            if rr < 2:
                 continue
 
-            score = rr * 100
+            # ===== 通知 =====
+            key = f"{code}"
 
-            # ===== 通知（最強フィルター）=====
-            if rr >= 2.0 and "🔥" in signal:
-                key = f"{code}_{signal}"
-
-                if key not in st.session_state.sent_alerts:
-                    msg = f"""
-🔥 {code} {name_dict.get(code, "")}
-{signal}
+            if key not in st.session_state.alerts:
+                msg = f"""
+🚀 {code} {name_dict.get(code,"")}
+寄付きブレイク
 価格:{round(entry,1)}
 損切:{round(stop,1)}
 RR:{round(rr,2)}
 """
-                    send_mail(msg)
-                    st.session_state.sent_alerts.append(key)
+                send_mail(msg)
+                st.session_state.alerts.append(key)
 
             results.append({
                 "コード": code,
                 "銘柄名": name_dict.get(code, ""),
-                "株価": round(float(latest["Close"]), 1),
-                "サイン": signal,
-                "RR": round(rr, 2),
-                "エントリー": round(entry, 1),
-                "損切り": round(stop, 1),
-                "利確": round(target, 1),
-                "スコア": round(score, 1)
+                "価格": round(entry,1),
+                "ギャップ%": round(gap*100,1),
+                "出来高倍率": round(vol_ratio,1),
+                "RR": round(rr,2)
             })
 
         except:
             continue
 
-        progress.progress((i + 1) / len(codes))
+        progress.progress((i+1)/len(codes))
 
     if results:
-        st.session_state.scan_results = pd.DataFrame(results)\
-            .sort_values("スコア", ascending=False)\
-            .head(top_n)
+        df_res = pd.DataFrame(results).sort_values("RR", ascending=False)
+        st.dataframe(df_res, width="stretch")
 
-# =========================
-# 表示
-# =========================
-if st.session_state.scan_results is not None:
-
-    st.subheader("🔥 上位銘柄")
-    df1 = st.session_state.scan_results
-
-    st.dataframe(df1, width="stretch")
-
-    st.subheader("📊 TradingView")
-
-    for i, row in df1.iterrows():
-        st.link_button(
-            f"📊 {row['コード']} {row['銘柄名']}",
-            f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/"
-        )
+        st.subheader("📊 TradingView")
+        for i, row in df_res.iterrows():
+            st.link_button(
+                f"{row['コード']} {row['銘柄名']}",
+                f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/"
+            )
 
 # =========================
 # 自動更新
