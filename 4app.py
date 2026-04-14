@@ -5,12 +5,24 @@ import time
 import smtplib
 from email.mime.text import MIMEText
 import datetime
+import pytz
 
 # =========================
 # 基本設定
 # =========================
 st.set_page_config(page_title="寄付き特化BOT", layout="wide")
-st.title("🚀 寄付き5分スキャナー（超高速モード）")
+st.title("🚀 寄付き5分スキャナー（完全版）")
+
+# =========================
+# 日本時間
+# =========================
+jst = pytz.timezone('Asia/Tokyo')
+now = datetime.datetime.now(jst)
+
+hour = now.hour
+minute = now.minute
+
+st.write("現在時刻（JST）:", now.strftime("%Y-%m-%d %H:%M:%S"))
 
 # =========================
 # メール通知
@@ -25,10 +37,13 @@ def send_mail(msg):
     message["From"] = sender
     message["To"] = receiver
 
-    smtp = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-    smtp.login(sender, password)
-    smtp.send_message(message)
-    smtp.quit()
+    try:
+        smtp = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+        smtp.login(sender, password)
+        smtp.send_message(message)
+        smtp.quit()
+    except Exception as e:
+        st.error(f"メールエラー: {e}")
 
 # =========================
 # CSV読み込み（安全版）
@@ -48,22 +63,19 @@ if "alerts" not in st.session_state:
     st.session_state.alerts = []
 
 # =========================
-# 時間制御（寄付き専用）
+# 稼働制御
 # =========================
-now = datetime.datetime.now()
-hour = now.hour
-minute = now.minute
+manual = st.checkbox("🧪 手動ON（テスト）", value=False)
 
-manual = st.checkbox("手動ON（テスト用）", value=False)
+# 寄付き5分のみ稼働
+time_run = (hour == 9 and minute <= 5)
 
-# 9:00〜9:05のみ稼働
-run_bot = manual or (hour == 9 and minute <= 5)
+run_bot = manual or time_run
 
-# 1分更新
+st.write("BOT状態:", "🟢 ON" if run_bot else "🔴 OFF")
+
+# 更新速度（寄付きは1分）
 refresh_sec = 60 if run_bot else None
-
-st.write(f"現在時刻: {hour}:{minute}")
-st.write(f"稼働状態: {'ON' if run_bot else 'OFF'}")
 
 # =========================
 # スキャン
@@ -75,24 +87,36 @@ if run_bot:
 
     for i, code in enumerate(codes):
         try:
-            df = yf.Ticker(f"{code}.T").history(period="5d", interval="1m")
+            ticker = yf.Ticker(f"{code}.T")
 
-            if len(df) < 50:
+            # 1分足
+            df = ticker.history(period="5d", interval="1m")
+
+            if df.empty or len(df) < 30:
                 continue
 
-            # 前日終値
-            prev_close = yf.Ticker(f"{code}.T").history(period="2d")["Close"].iloc[-2]
+            # 日足取得（前日終値）
+            daily = ticker.history(period="3d")
+            if len(daily) < 2:
+                continue
+
+            prev_close = daily["Close"].iloc[-2]
 
             latest = df.iloc[-1]
 
-            # ===== ギャップ判定 =====
+            # =========================
+            # ギャップ
+            # =========================
             gap = (latest["Open"] - prev_close) / prev_close
 
-            if gap < 0.02:
-                continue  # 2%以上ギャップのみ
+            if gap < 0.02 or gap > 0.06:
+                continue
 
-            # ===== 出来高急増 =====
+            # =========================
+            # 出来高
+            # =========================
             vol_ma = df["Volume"].rolling(20).mean().iloc[-1]
+
             if vol_ma == 0:
                 continue
 
@@ -101,15 +125,20 @@ if run_bot:
             if vol_ratio < 2.0:
                 continue
 
-            # ===== 高値ブレイク =====
+            # =========================
+            # ブレイク
+            # =========================
             high_5 = df["High"].rolling(5).max().iloc[-2]
 
             if latest["Close"] <= high_5:
                 continue
 
-            # ===== エントリー =====
+            # =========================
+            # エントリー
+            # =========================
             entry = latest["Close"]
             stop = latest["Low"]
+
             risk = entry - stop
 
             if risk <= 0:
@@ -119,14 +148,16 @@ if run_bot:
             if (risk / entry) > 0.03:
                 continue
 
-            target = entry + (risk * 2.0)
+            target = entry + risk * 2
             rr = (target - entry) / risk
 
             if rr < 2:
                 continue
 
-            # ===== 通知 =====
-            key = f"{code}"
+            # =========================
+            # 通知（重複防止）
+            # =========================
+            key = code
 
             if key not in st.session_state.alerts:
                 msg = f"""
@@ -139,6 +170,9 @@ RR:{round(rr,2)}
                 send_mail(msg)
                 st.session_state.alerts.append(key)
 
+            # =========================
+            # 結果
+            # =========================
             results.append({
                 "コード": code,
                 "銘柄名": name_dict.get(code, ""),
@@ -148,13 +182,18 @@ RR:{round(rr,2)}
                 "RR": round(rr,2)
             })
 
-        except:
+        except Exception:
             continue
 
         progress.progress((i+1)/len(codes))
 
+    # =========================
+    # 表示
+    # =========================
     if results:
         df_res = pd.DataFrame(results).sort_values("RR", ascending=False)
+
+        st.subheader("🔥 寄付きチャンス銘柄")
         st.dataframe(df_res, width="stretch")
 
         st.subheader("📊 TradingView")
@@ -163,6 +202,8 @@ RR:{round(rr,2)}
                 f"{row['コード']} {row['銘柄名']}",
                 f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/"
             )
+    else:
+        st.warning("該当銘柄なし（条件が厳しめ）")
 
 # =========================
 # 自動更新
