@@ -7,12 +7,12 @@ from email.mime.text import MIMEText
 from datetime import datetime
 import pytz
 
-st.set_page_config(page_title="寄付き10分スキャナー（安定版）", layout="wide")
-st.title("🔥 寄付き超精密スキャナー（データ取得強化版）")
+# =========================
+# 基本設定
+# =========================
+st.set_page_config(page_title="寄付きスキャナー（結果表示修正版）", layout="wide")
+st.title("🔥 寄付き超精密スキャナー（結果表示・階層構造対策済）")
 
-# =========================
-# メール設定
-# =========================
 SENDER = "ediix.164@gmail.com"
 PASSWORD = "srhg uzgk lccr yssk"
 RECEIVER = "ediix.164@gmail.com"
@@ -29,18 +29,13 @@ def send_mail(body):
     except Exception as e:
         st.error(f"メール送信失敗: {e}")
 
-# =========================
-# 日本時間・判定
-# =========================
+# 時間設定
 JST = pytz.timezone("Asia/Tokyo")
 now = datetime.now(JST)
-hour = now.hour
-minute = now.minute
+st.write(f"現在時刻: {now.strftime('%H:%M:%S')} (JST)")
 
-st.write(f"現在時刻: {hour:02d}:{minute:02d} (JST)")
-
-# 判定時間を9:30まで広げ、データの反映待ちに対応
-is_open_time = (hour == 9 and minute <= 30)
+# 判定時間を9:30まで設定
+is_open_time = (now.hour == 9 and now.minute <= 30)
 
 if "sent_codes" not in st.session_state:
     st.session_state.sent_codes = set()
@@ -54,16 +49,16 @@ def load_codes():
         df_codes = pd.read_csv("jpx400.csv", header=None)
         return df_codes
     except:
-        return pd.DataFrame([["8306", "三菱UFJ"], ["9984", "SBG"], ["4568", "第一三共"]])
+        return pd.DataFrame([["8306", "三菱UFJ"], ["9984", "ソフトバンクG"], ["4568", "第一三共"]])
 
 df_codes = load_codes()
 codes = df_codes[0].astype(str).tolist()
 name_dict = dict(zip(df_codes[0].astype(str), df_codes[1]))
 
-run = st.checkbox("🚀 スキャンON", value=True)
+run = st.checkbox("🚀 スキャン開始", value=True)
 
 # =========================
-# スキャンメインロジック
+# メインループ
 # =========================
 if run:
     if is_open_time:
@@ -74,82 +69,77 @@ if run:
 
         for i, code in enumerate(codes):
             try:
-                # 【最重要修正】period="1d"だと朝イチは空になることが多いため、"2d"で取得して今日分を抽出
-                df = yf.download(
-                    f"{code}.T",
-                    interval="1m",
-                    period="2d",
-                    progress=False,
-                    timeout=10
-                )
+                # 【修正1】直近2日分を取得し、階層構造を強制解除
+                df = yf.download(f"{code}.T", period="2d", interval="1m", progress=False)
 
                 if df.empty:
                     continue
 
-                # 日本時間の今日の日付のデータのみに絞り込み
-                today_str = now.strftime('%Y-%m-%d')
-                df_today = df.loc[df.index.strftime('%Y-%m-%d') == today_str].copy()
+                # 【修正2】マルチインデックス対策：カラムをフラットにする
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
 
-                if len(df_today) < 2: # 最低2分あれば動かす
+                # 今日のデータのみ抽出
+                today_str = now.strftime('%Y-%m-%d')
+                df_today = df[df.index.strftime('%Y-%m-%d') == today_str].copy()
+
+                if len(df_today) < 3:
                     continue
 
-                # Seriesからスカラ値へ確実に変換 (.item() を使用)
-                high_5 = df_today["High"].max().item()
-                low_5 = df_today["Low"].min().item()
-                close_now = df_today["Close"].iloc[-1].item()
-                open_start = df_today["Open"].iloc[0].item()
-                volume_last = df_today["Volume"].iloc[-1].item()
-                volume_avg = df_today["Volume"].mean().item()
+                # 各値の取得（型エラー防止のため .iloc[-1] を徹底）
+                c_now = float(df_today["Close"].iloc[-1])
+                o_start = float(df_today["Open"].iloc[0])
+                h_max = float(df_today["High"].max())
+                l_min = float(df_today["Low"].min())
+                v_last = float(df_today["Volume"].iloc[-1])
+                v_avg = float(df_today["Volume"].mean())
 
                 # VWAP計算
-                vwap_now = ((df_today["Close"] * df_today["Volume"]).cumsum() / df_today["Volume"].cumsum()).iloc[-1].item()
+                vwap = ((df_today["Close"] * df_today["Volume"]).cumsum() / df_today["Volume"].cumsum()).iloc[-1]
 
-                # 出来高倍率
-                vol_ratio = volume_last / volume_avg if volume_avg > 0 else 0
-
-                # 判定条件（さらに実戦的に調整）
-                cond_vwap = close_now > vwap_now
-                cond_break = close_now >= (high_5 * 0.99) # ほぼ高値圏
-                cond_vol = vol_ratio > 1.0 # 寄付きは出来高が不安定なので1.0以上に緩和
-                cond_plus = close_now > open_start # 始値より上で推移
+                # --- 判定ロジック ---
+                cond_vwap = c_now > vwap
+                cond_break = c_now >= (h_max * 0.995) # ほぼ高値圏
+                cond_vol = (v_last > v_avg * 1.1)
+                cond_plus = c_now > o_start
 
                 if cond_vwap and cond_break and cond_vol and cond_plus:
                     results.append({
                         "コード": code,
                         "銘柄名": name_dict.get(code, ""),
-                        "株価": round(close_now, 1),
-                        "出来高倍率": round(vol_ratio, 2)
+                        "現在値": round(c_now, 1),
+                        "出来高比": round(v_last / v_avg, 2)
                     })
 
                     if code not in st.session_state.sent_codes:
-                        alert_text = f"🔥 {code} {name_dict.get(code,'')}\n株価: {round(close_now,1)}\n出来高倍率: {round(vol_ratio,2)}"
-                        alerts.append(alert_text)
+                        alerts.append(f"🔥 {code} {name_dict.get(code,'')} ({round(c_now,1)}円)")
                         st.session_state.sent_codes.add(code)
 
             except Exception as e:
-                # エラー内容を確認したい場合は st.write(e)
                 continue
             
             progress_bar.progress((i + 1) / len(codes))
-            status_text.text(f"スキャン中... {code}")
+            status_text.text(f"スキャン中: {code}")
 
+        # --- 結果表示エリア ---
         if alerts:
-            send_mail("\n\n".join(alerts))
-            st.success(f"📧 {len(alerts)}件のアラート送信")
+            send_mail("\n".join(alerts))
+            st.toast(f"📧 {len(alerts)}件のメールを送信しました")
 
         if results:
-            df_res = pd.DataFrame(results).sort_values("出来高倍率", ascending=False)
-            st.subheader("🔥 寄付き初動候補")
-            st.dataframe(df_res, use_container_width=True)
+            st.subheader("✅ 条件合致銘柄")
+            # テーブル形式でハッキリ表示
+            st.table(pd.DataFrame(results))
             
-            for idx, row in df_res.head(5).iterrows():
-                st.link_button(f"📊 {row['コード']} {row['銘柄名']}", f"https://jp.tradingview.com/symbols/TSE-{row['コード']}/")
+            # 詳細リンク
+            for res in results:
+                st.link_button(f"📊 {res['コード']} {res['銘柄名']} を開く", f"https://jp.tradingview.com/symbols/TSE-{res['コード']}/")
         else:
-            st.warning("条件に合う銘柄が見つかりませんでした。データ反映待ちの可能性があります。")
+            st.warning("⚠️ 現在、スキャン条件を満たす銘柄はありません。データが反映されるまでお待ちください。")
 
         time.sleep(60)
         st.rerun()
     else:
-        st.info("⏰ 寄付き時間外（9:00〜9:30）です。")
+        st.info("⏰ 待機中：寄付き（9:00〜9:30）に自動でスキャンを開始します。")
 else:
-    st.warning("停止中")
+    st.warning("スキャナー停止中")
